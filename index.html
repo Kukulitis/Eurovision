@@ -17,7 +17,7 @@
 
     h1 {
       text-align: center;
-      font-size: clamp(1.2rem, 4vw, 2rem);
+      font-size: clamp(2rem, 8vw, 3.5rem);
       font-weight: 900;
       letter-spacing: 0.05em;
       margin-bottom: 4px;
@@ -165,10 +165,22 @@
       padding: 0 2px;
     }
 
-    .ghost {
-      opacity: 0.22;
-      background: rgba(255,255,255,0.04);
-      transition: opacity 0.15s;
+    .ghost-placeholder {
+      opacity: 0 !important;
+      pointer-events: none;
+    }
+
+    .drop-placeholder {
+      border-radius: 10px;
+      background: rgba(255, 110, 199, 0.1);
+      border: 2px dashed rgba(255, 110, 199, 0.6);
+      margin-bottom: 8px;
+      animation: ph-pulse 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes ph-pulse {
+      from { border-color: rgba(255,110,199,0.35); background: rgba(255,110,199,0.07); }
+      to   { border-color: rgba(255,110,199,0.85); background: rgba(255,110,199,0.18); }
     }
 
     .song-item {
@@ -188,12 +200,11 @@
   <h1>&#127926; Eurovision 2026</h1>
   <p class="subtitle">Grand Final Ranker &mdash; drag to rank your favourites</p>
 
+  <div class="list-container" id="list"></div>
+
   <div class="controls">
     <button class="btn-reset" onclick="resetOrder()">&#8635; Reset Order</button>
-    <button class="btn-shuffle" onclick="shuffleOrder()">&#9665;&#9655; Shuffle</button>
   </div>
-
-  <div class="list-container" id="list"></div>
 
   <footer>Drag items up and down &bull; Works on mobile too &bull; Eurovision 2026 &bull; Vienna</footer>
 
@@ -295,38 +306,38 @@
 
   // ── Touch Drag & Drop ────────────────────────────────────────────────────────
 
-  let touchDragIndex  = null;
-  let touchClone      = null;
-  let cloneBaseTop    = 0;   // initial fixed top of clone
-  let touchStartY     = 0;   // finger Y at drag start
-  let touchLiveY      = 0;   // latest finger Y
-  let rafId           = null;
-  let scrollRafId     = null;
-  let pendingDrop     = null;
+  const DRAG_DELAY   = 180;   // ms hold before drag activates
+  const CANCEL_DIST  = 7;     // px movement cancels drag intent (lets scroll happen)
+  const SCROLL_ZONE  = 85;    // px from screen edge → auto-scroll kicks in
+  const SCROLL_SPEED = 9;     // px per frame
 
-  function updateClonePosition() {
+  let isDragging  = false;
+  let dragSrcIdx  = null;
+  let touchClone  = null;
+  let ghostEl     = null;
+  let placeholder = null;
+  let touchStartY = 0;
+  let touchStartX = 0;
+  let touchLiveY  = 0;
+  let rafId       = null;
+  let scrollRafId = null;
+
+  // Non-passive document listener blocks scroll while dragging
+  function blockScroll(e) { e.preventDefault(); }
+
+  function updateClonePos() {
     rafId = null;
     if (!touchClone) return;
-    const dy = touchLiveY - touchStartY;
-    touchClone.style.transform = `translate3d(0, ${dy}px, 0) scale(1.05)`;
+    touchClone.style.transform =
+      `translate3d(0, ${touchLiveY - touchStartY}px, 0) scale(1.05)`;
   }
-
-  const SCROLL_ZONE = 90;   // px from edge that triggers auto-scroll
-  const SCROLL_SPEED = 8;   // px per frame
 
   function startAutoScroll(clientY) {
     stopAutoScroll();
     const vh = window.innerHeight;
-    let dir = 0;
-    if (clientY < SCROLL_ZONE)        dir = -1;
-    else if (clientY > vh - SCROLL_ZONE) dir = +1;
+    const dir = clientY < SCROLL_ZONE ? -1 : clientY > vh - SCROLL_ZONE ? 1 : 0;
     if (!dir) return;
-
-    function tick() {
-      window.scrollBy(0, dir * SCROLL_SPEED);
-      cloneBaseTop -= dir * SCROLL_SPEED;   // keep clone locked to finger
-      scrollRafId = requestAnimationFrame(tick);
-    }
+    function tick() { window.scrollBy(0, dir * SCROLL_SPEED); scrollRafId = requestAnimationFrame(tick); }
     scrollRafId = requestAnimationFrame(tick);
   }
 
@@ -334,115 +345,162 @@
     if (scrollRafId) { cancelAnimationFrame(scrollRafId); scrollRafId = null; }
   }
 
+  function updatePlaceholder(clientX, clientY) {
+    if (!placeholder || !touchClone) return;
+    const list = document.getElementById('list');
+
+    touchClone.style.visibility  = 'hidden';
+    placeholder.style.visibility = 'hidden';
+    const below = document.elementFromPoint(clientX, clientY);
+    touchClone.style.visibility  = 'visible';
+    placeholder.style.visibility = 'visible';
+
+    const target = below && below.closest('.song-item');
+    if (!target || target === ghostEl) return;
+
+    const rect     = target.getBoundingClientRect();
+    const topHalf  = clientY < rect.top + rect.height / 2;
+    list.insertBefore(placeholder, topHalf ? target : target.nextSibling);
+  }
+
+  function startDrag(el, index, touch) {
+    isDragging = true;
+    dragSrcIdx = index;
+    touchLiveY = touch.clientY;
+
+    const rect = el.getBoundingClientRect();
+
+    // Invisible placeholder gap (same height as the item)
+    placeholder = document.createElement('div');
+    placeholder.className   = 'drop-placeholder';
+    placeholder.style.height = rect.height + 'px';
+    el.parentNode.insertBefore(placeholder, el.nextSibling);
+
+    // Ghost: source item stays in DOM, holds its space, but is invisible
+    ghostEl = el;
+    el.classList.add('ghost-placeholder');
+
+    // Flying clone — position locked via transform (GPU layer)
+    touchClone = el.cloneNode(true);
+    touchClone.classList.remove('ghost-placeholder');
+    touchClone.style.cssText = `
+      position:fixed; left:${rect.left}px; top:${rect.top}px;
+      width:${rect.width}px; margin:0;
+      z-index:9999; pointer-events:none;
+      border-radius:14px;
+      background:rgba(255,220,100,0.2); border:1.5px solid #ffe066;
+      box-shadow:0 16px 50px rgba(0,0,0,0.65);
+      will-change:transform;
+      transform:translate3d(0,0,0) scale(1.05);
+      opacity:0; transition:opacity 0.12s ease;
+    `;
+    document.body.appendChild(touchClone);
+    requestAnimationFrame(() => { if (touchClone) touchClone.style.opacity = '0.95'; });
+
+    // Block scroll for the rest of this gesture
+    document.addEventListener('touchmove', blockScroll, { passive: false });
+    navigator.vibrate && navigator.vibrate(15);
+  }
+
+  function endDrag() {
+    if (!isDragging) return;
+
+    // Derive new order by walking DOM children
+    const list     = document.getElementById('list');
+    const dragged  = order[dragSrcIdx];
+    const newOrder = [];
+    for (const child of list.children) {
+      if (child === ghostEl)     continue;
+      if (child === placeholder) { newOrder.push(dragged); continue; }
+      const idx = parseInt(child.dataset.index);
+      if (!isNaN(idx)) newOrder.push(order[idx]);
+    }
+    if (!newOrder.includes(dragged)) newOrder.push(dragged);
+
+    order = newOrder;
+    cleanupDrag();
+    render();
+  }
+
+  function cleanupDrag() {
+    isDragging = false;
+    dragSrcIdx = null;
+    stopAutoScroll();
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    document.removeEventListener('touchmove', blockScroll);
+    if (touchClone)  { touchClone.remove();  touchClone  = null; }
+    if (placeholder) { placeholder.remove(); placeholder = null; }
+    if (ghostEl)     { ghostEl.classList.remove('ghost-placeholder'); ghostEl = null; }
+  }
+
   function attachTouchEvents(el, index) {
+    let dragTimer = null;
+    let hintTimer = null;
+
     el.addEventListener('touchstart', e => {
-      touchDragIndex = index;
-      const touch    = e.touches[0];
-      const rect     = el.getBoundingClientRect();
+      const touch = e.touches[0];
+      touchStartY = touch.clientY;
+      touchStartX = touch.clientX;
+      touchLiveY  = touch.clientY;
 
-      touchStartY  = touch.clientY;
-      touchLiveY   = touch.clientY;
-      cloneBaseTop = rect.top;
+      // Subtle scale hint at halfway to signal drag is available
+      hintTimer = setTimeout(() => {
+        if (!isDragging) {
+          el.style.transition = 'transform 0.1s ease, border-color 0.1s ease';
+          el.style.transform  = 'scale(1.025)';
+          el.style.borderColor = 'rgba(255,220,100,0.5)';
+        }
+      }, DRAG_DELAY * 0.55);
 
-      touchClone = el.cloneNode(true);
-      // position at element's exact spot; all movement via transform (GPU layer)
-      touchClone.style.cssText = `
-        position: fixed;
-        left: ${rect.left}px;
-        top: ${rect.top}px;
-        width: ${rect.width}px;
-        margin: 0;
-        z-index: 9999;
-        pointer-events: none;
-        border-radius: 14px;
-        background: rgba(255,220,100,0.18);
-        border: 1px solid #ffe066;
-        box-shadow: 0 14px 48px rgba(0,0,0,0.55);
-        will-change: transform;
-        transform: translate3d(0,0,0) scale(1.05);
-        opacity: 0;
-        transition: opacity 0.12s ease;
-      `;
-      document.body.appendChild(touchClone);
-
-      // fade in on next frame so transition fires
-      requestAnimationFrame(() => { if (touchClone) touchClone.style.opacity = '0.95'; });
-
-      el.classList.add('ghost');
-      navigator.vibrate && navigator.vibrate(12);
+      dragTimer = setTimeout(() => {
+        startDrag(el, index, touch);
+      }, DRAG_DELAY);
     }, { passive: true });
 
+    // Passive — scroll detection only, blocking handled by document listener after drag starts
     el.addEventListener('touchmove', e => {
-      e.preventDefault();
-      if (!touchClone) return;
-
       const touch = e.touches[0];
-      touchLiveY = touch.clientY;
+      touchLiveY  = touch.clientY;
 
-      // schedule one position update per frame
-      if (!rafId) rafId = requestAnimationFrame(updateClonePosition);
-
-      // auto-scroll near edges
-      startAutoScroll(touch.clientY);
-
-      // hit-test under the clone
-      touchClone.style.visibility = 'hidden';
-      const below = document.elementFromPoint(touch.clientX, touch.clientY);
-      touchClone.style.visibility = 'visible';
-
-      const target = below && below.closest('.song-item:not(.ghost)');
-      document.querySelectorAll('.song-item').forEach(i => i.classList.remove('drag-over'));
-      if (target) {
-        target.classList.add('drag-over');
-        pendingDrop = parseInt(target.dataset.index);
-      } else {
-        pendingDrop = null;
+      if (!isDragging) {
+        // Cancel drag intent if user moves before timer fires (they're scrolling)
+        if (Math.abs(touch.clientY - touchStartY) > CANCEL_DIST ||
+            Math.abs(touch.clientX - touchStartX) > CANCEL_DIST) {
+          clearTimeout(hintTimer);
+          clearTimeout(dragTimer);
+          el.style.transform   = '';
+          el.style.borderColor = '';
+          el.style.transition  = '';
+        }
+        return;
       }
-    }, { passive: false });
+
+      if (!rafId) rafId = requestAnimationFrame(updateClonePos);
+      startAutoScroll(touch.clientY);
+      updatePlaceholder(touch.clientX, touch.clientY);
+    }, { passive: true });
 
     el.addEventListener('touchend', () => {
+      clearTimeout(hintTimer);
+      clearTimeout(dragTimer);
+      el.style.transform   = '';
+      el.style.borderColor = '';
+      el.style.transition  = '';
       stopAutoScroll();
       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      if (!touchClone) return;
-
-      // snap-to-target animation before removing
-      if (pendingDrop !== null) {
-        const targetEl = document.querySelector(`[data-index="${pendingDrop}"]`);
-        if (targetEl) {
-          const tRect = targetEl.getBoundingClientRect();
-          const dy    = tRect.top - cloneBaseTop;
-          touchClone.style.transition = 'transform 0.18s cubic-bezier(0.25,0.8,0.25,1), opacity 0.18s';
-          touchClone.style.transform  = `translate3d(0, ${dy}px, 0) scale(1)`;
-          touchClone.style.opacity    = '0';
-        }
-        setTimeout(cleanupTouch, 180);
-      } else {
-        // snap back
-        touchClone.style.transition = 'transform 0.2s cubic-bezier(0.25,0.8,0.25,1), opacity 0.2s';
-        touchClone.style.transform  = 'translate3d(0,0,0) scale(1)';
-        touchClone.style.opacity    = '0';
-        setTimeout(cleanupTouch, 200);
-      }
+      if (isDragging) endDrag();
     });
 
     el.addEventListener('touchcancel', () => {
+      clearTimeout(hintTimer);
+      clearTimeout(dragTimer);
+      el.style.transform   = '';
+      el.style.borderColor = '';
+      el.style.transition  = '';
       stopAutoScroll();
       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      setTimeout(cleanupTouch, 0);
+      if (isDragging) cleanupDrag();
     });
-  }
-
-  function cleanupTouch() {
-    if (touchClone) { touchClone.remove(); touchClone = null; }
-    document.querySelectorAll('.song-item').forEach(i => i.classList.remove('ghost', 'drag-over'));
-
-    if (pendingDrop !== null && pendingDrop !== touchDragIndex) {
-      const moved = order.splice(touchDragIndex, 1)[0];
-      order.splice(pendingDrop, 0, moved);
-      render();
-    }
-    touchDragIndex = null;
-    pendingDrop    = null;
   }
 
   // ── Controls ─────────────────────────────────────────────────────────────────
