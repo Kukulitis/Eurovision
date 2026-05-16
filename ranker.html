@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Eurovision 2026 Grand Final Ranker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: linear-gradient(135deg, #0a0a2e 0%, #1a0a4e 40%, #2d0a6e 100%);
+      min-height: 100vh;
+      padding: 16px;
+      color: #fff;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: clamp(1.2rem, 4vw, 2rem);
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+      background: linear-gradient(90deg, #ffe066, #ff6ec7, #6ec6ff, #ffe066);
+      background-size: 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 3s linear infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 16px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+
+    button:active { transform: scale(0.96); }
+
+    .btn-reset {
+      background: linear-gradient(90deg, #ff6ec7, #ff3a8c);
+      color: #fff;
+    }
+
+    .btn-shuffle {
+      background: linear-gradient(90deg, #6ec6ff, #3a8cff);
+      color: #fff;
+    }
+
+    .list-container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .song-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+      position: relative;
+    }
+
+    .song-item:active { cursor: grabbing; }
+
+    .song-item.dragging {
+      background: rgba(255, 220, 100, 0.18);
+      border-color: #ffe066;
+      box-shadow: 0 8px 32px rgba(255,220,100,0.25);
+      transform: scale(1.03);
+      z-index: 100;
+      opacity: 0.95;
+    }
+
+    .song-item.drag-over {
+      border-color: #ff6ec7;
+      background: rgba(255,110,199,0.15);
+    }
+
+    .rank {
+      font-size: 1.1rem;
+      font-weight: 900;
+      min-width: 30px;
+      text-align: center;
+      color: #ffe066;
+    }
+
+    .rank-1  { color: #FFD700; }
+    .rank-2  { color: #C0C0C0; }
+    .rank-3  { color: #CD7F32; }
+
+    .flag {
+      font-size: 2rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .song-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .artist {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .song-title {
+      font-size: 0.8rem;
+      color: #ccc;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-style: italic;
+    }
+
+    .country {
+      font-size: 0.7rem;
+      color: #aaa;
+      margin-top: 1px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .drag-handle {
+      color: rgba(255,255,255,0.3);
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      padding: 0 2px;
+    }
+
+    .ghost {
+      opacity: 0.25;
+      background: rgba(255,255,255,0.04);
+    }
+
+    footer {
+      text-align: center;
+      color: rgba(255,255,255,0.3);
+      font-size: 0.7rem;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>&#127926; Eurovision 2026</h1>
+  <p class="subtitle">Grand Final Ranker &mdash; drag to rank your favourites</p>
+
+  <div class="controls">
+    <button class="btn-reset" onclick="resetOrder()">&#8635; Reset Order</button>
+    <button class="btn-shuffle" onclick="shuffleOrder()">&#9665;&#9655; Shuffle</button>
+  </div>
+
+  <div class="list-container" id="list"></div>
+
+  <footer>Drag items up and down &bull; Works on mobile too &bull; Eurovision 2026 &bull; Vienna</footer>
+
+<script>
+  const songs = [
+    { country: "Denmark",        flag: "🇩🇰", artist: "Søren Torpegaard Lund", song: "Før Vi Går Hjem" },
+    { country: "Germany",        flag: "🇩🇪", artist: "Sarah Engels",           song: "Fire" },
+    { country: "Israel",         flag: "🇮🇱", artist: "Noam Bettan",            song: "Michelle" },
+    { country: "Belgium",        flag: "🇧🇪", artist: "ESSYLA",                 song: "Dancing on the Ice" },
+    { country: "Albania",        flag: "🇦🇱", artist: "Alis",                   song: "Nân" },
+    { country: "Greece",         flag: "🇬🇷", artist: "Akylas",                 song: "Ferto" },
+    { country: "Ukraine",        flag: "🇺🇦", artist: "LELÉKA",                 song: "Ridnym" },
+    { country: "Australia",      flag: "🇦🇺", artist: "Delta Goodrem",          song: "Eclipse" },
+    { country: "Serbia",         flag: "🇷🇸", artist: "LAVINA",                 song: "Kraj Mene" },
+    { country: "Malta",          flag: "🇲🇹", artist: "AIDAN",                  song: "Bella" },
+    { country: "Czechia",        flag: "🇨🇿", artist: "Daniel Zizka",           song: "CROSSROADS" },
+    { country: "Bulgaria",       flag: "🇧🇬", artist: "DARA",                   song: "Bangaranga" },
+    { country: "Croatia",        flag: "🇭🇷", artist: "LELEK",                  song: "Andromeda" },
+    { country: "United Kingdom", flag: "🇬🇧", artist: "LOOK MUM NO COMPUTER",   song: "Eins, Zwei, Drei" },
+    { country: "France",         flag: "🇫🇷", artist: "Monroe",                 song: "Regarde !" },
+    { country: "Moldova",        flag: "🇲🇩", artist: "Satoshi",                song: "Viva, Moldova!" },
+    { country: "Finland",        flag: "🇫🇮", artist: "Linda Lampenius x Pete Parkkonen", song: "Liekinheitin" },
+    { country: "Poland",         flag: "🇵🇱", artist: "ALICJA",                 song: "Pray" },
+    { country: "Lithuania",      flag: "🇱🇹", artist: "Lion Ceccah",            song: "Sólo Quiero Más" },
+    { country: "Sweden",         flag: "🇸🇪", artist: "FELICIA",                song: "My System" },
+    { country: "Cyprus",         flag: "🇨🇾", artist: "Antigoni",               song: "JALLA" },
+    { country: "Italy",          flag: "🇮🇹", artist: "Sal Da Vinci",           song: "Per Sempre Sì" },
+    { country: "Norway",         flag: "🇳🇴", artist: "JONAS LOVV",             song: "YA YA YA" },
+    { country: "Romania",        flag: "🇷🇴", artist: "Alexandra Căpitănescu",  song: "Choke Me" },
+    { country: "Austria",        flag: "🇦🇹", artist: "COSMÓ",                  song: "Tanzschein" },
+  ];
+
+  const originalOrder = [...songs];
+  let order = [...songs];
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  function render() {
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    order.forEach((s, i) => {
+      const el = document.createElement('div');
+      el.className = 'song-item';
+      el.draggable = true;
+      el.dataset.index = i;
+
+      const rankClass = i === 0 ? 'rank rank-1' : i === 1 ? 'rank rank-2' : i === 2 ? 'rank rank-3' : 'rank';
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+
+      el.innerHTML = `
+        <div class="${rankClass}">${medal}</div>
+        <div class="flag">${s.flag}</div>
+        <div class="song-info">
+          <div class="artist">${s.artist}</div>
+          <div class="song-title">"${s.song}"</div>
+          <div class="country">${s.country}</div>
+        </div>
+        <div class="drag-handle">&#8801;</div>
+      `;
+
+      attachDragEvents(el, i);
+      attachTouchEvents(el, i);
+      list.appendChild(el);
+    });
+  }
+
+  // ── Mouse Drag & Drop ────────────────────────────────────────────────────────
+
+  let dragSrcIndex = null;
+
+  function attachDragEvents(el, index) {
+    el.addEventListener('dragstart', e => {
+      dragSrcIndex = index;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      document.querySelectorAll('.song-item').forEach(i => i.classList.remove('drag-over', 'ghost'));
+    });
+
+    el.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.song-item').forEach(i => i.classList.remove('drag-over'));
+      el.classList.add('drag-over');
+    });
+
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      if (dragSrcIndex !== null && dragSrcIndex !== index) {
+        const moved = order.splice(dragSrcIndex, 1)[0];
+        order.splice(index, 0, moved);
+        render();
+      }
+    });
+  }
+
+  // ── Touch Drag & Drop ────────────────────────────────────────────────────────
+
+  let touchDragIndex = null;
+  let touchClone = null;
+  let touchOffsetX = 0;
+  let touchOffsetY = 0;
+
+  function attachTouchEvents(el, index) {
+    el.addEventListener('touchstart', e => {
+      touchDragIndex = index;
+      const touch = e.touches[0];
+      const rect = el.getBoundingClientRect();
+      touchOffsetX = touch.clientX - rect.left;
+      touchOffsetY = touch.clientY - rect.top;
+
+      touchClone = el.cloneNode(true);
+      touchClone.style.cssText = `
+        position: fixed;
+        width: ${rect.width}px;
+        left: ${rect.left}px;
+        top: ${rect.top}px;
+        z-index: 9999;
+        opacity: 0.92;
+        pointer-events: none;
+        border-radius: 14px;
+        background: rgba(255,220,100,0.2);
+        border: 1px solid #ffe066;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        transform: scale(1.04);
+        transition: none;
+      `;
+      document.body.appendChild(touchClone);
+      el.classList.add('ghost');
+    }, { passive: true });
+
+    el.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (!touchClone) return;
+      const touch = e.touches[0];
+      touchClone.style.left = (touch.clientX - touchOffsetX) + 'px';
+      touchClone.style.top  = (touch.clientY - touchOffsetY) + 'px';
+
+      // Highlight drop target
+      touchClone.style.display = 'none';
+      const below = document.elementFromPoint(touch.clientX, touch.clientY);
+      touchClone.style.display = '';
+      const target = below && below.closest('.song-item');
+      document.querySelectorAll('.song-item').forEach(i => i.classList.remove('drag-over'));
+      if (target) target.classList.add('drag-over');
+    }, { passive: false });
+
+    el.addEventListener('touchend', e => {
+      if (!touchClone) return;
+      const touch = e.changedTouches[0];
+
+      touchClone.style.display = 'none';
+      const below = document.elementFromPoint(touch.clientX, touch.clientY);
+      touchClone.style.display = '';
+
+      const target = below && below.closest('.song-item');
+      const dropIndex = target ? parseInt(target.dataset.index) : null;
+
+      touchClone.remove();
+      touchClone = null;
+
+      document.querySelectorAll('.song-item').forEach(i => {
+        i.classList.remove('ghost', 'drag-over');
+      });
+
+      if (dropIndex !== null && dropIndex !== touchDragIndex) {
+        const moved = order.splice(touchDragIndex, 1)[0];
+        order.splice(dropIndex, 0, moved);
+        render();
+      }
+      touchDragIndex = null;
+    });
+  }
+
+  // ── Controls ─────────────────────────────────────────────────────────────────
+
+  function resetOrder() {
+    order = [...originalOrder];
+    render();
+  }
+
+  function shuffleOrder() {
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    render();
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────────
+  render();
+</script>
+</body>
+</html>
